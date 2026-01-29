@@ -9,6 +9,7 @@ const noteSchema = new mongoose.Schema(
     filePath: { type: String, required: true },
     originalName: { type: String, required: true },
     mimeType: { type: String, required: true },
+    downloadCount: { type: Number, default: 0 },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

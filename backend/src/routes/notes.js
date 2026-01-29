@@ -20,9 +20,25 @@ const storage = multer.diskStorage({
   },
 });
 
+const allowedMimeTypes = new Set([
+  'application/pdf',
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+
 const upload = multer({
   storage,
   limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (!file?.mimetype || !allowedMimeTypes.has(file.mimetype)) {
+      return cb(new Error('Only PDF, images, and Word docs allowed'));
+    }
+    return cb(null, true);
+  },
 });
 
 // Public list + search/filter
@@ -39,7 +55,7 @@ router.get('/', async (req, res) => {
 
   const notes = await Note.find(filter)
     .sort({ createdAt: -1 })
-    .select('title subject semester description mimeType originalName uploadedBy createdAt');
+    .select('title subject semester description mimeType originalName uploadedBy createdAt downloadCount');
 
   return res.json({ notes });
 });
@@ -73,6 +89,7 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
     filePath: req.file.filename,
     originalName: req.file.originalname,
     mimeType: req.file.mimetype,
+    downloadCount: 0,
     uploadedBy: req.user.id,
   });
 
@@ -89,8 +106,17 @@ router.get('/:id/download', authRequired, async (req, res) => {
     { $push: { downloads: { note: note._id, downloadedAt: new Date() } } }
   );
 
+  await Note.updateOne({ _id: note._id }, { $inc: { downloadCount: 1 } });
+
   const absolutePath = path.join(uploadsDir, note.filePath);
   return res.download(absolutePath, note.originalName);
+});
+
+router.use((err, req, res, next) => {
+  if (err?.message === 'Only PDF, images, and Word docs allowed') {
+    return res.status(400).json({ message: err.message });
+  }
+  return next(err);
 });
 
 module.exports = { notesRouter: router };

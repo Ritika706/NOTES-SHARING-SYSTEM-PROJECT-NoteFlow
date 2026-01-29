@@ -1,55 +1,30 @@
-import { Link, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
-import { clearToken, isLoggedIn } from './lib/auth';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { isLoggedIn } from './lib/auth';
+import { Navbar } from './components/Navbar';
 import HomePage from './pages/HomePage.jsx';
-import LoginPage from './pages/LoginPage.jsx';
-import RegisterPage from './pages/RegisterPage.jsx';
+import AuthPage from './pages/AuthPage.jsx';
 import UploadPage from './pages/UploadPage.jsx';
 import NoteDetailsPage from './pages/NoteDetailsPage.jsx';
 import ProfilePage from './pages/ProfilePage.jsx';
 
 function ProtectedRoute({ children }) {
-  if (!isLoggedIn()) return <Navigate to="/login" replace />;
+  if (!isLoggedIn()) return <Navigate to="/auth?mode=login" replace />;
   return children;
 }
 
 export default function App() {
-  const navigate = useNavigate();
-  const loggedIn = isLoggedIn();
-
-  function logout() {
-    clearToken();
-    navigate('/login');
-  }
-
   return (
     <div className="min-h-screen">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between p-4">
-          <Link to="/" className="text-lg font-semibold">Notely</Link>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link to="/">Home</Link>
-            {loggedIn ? (
-              <>
-                <Link to="/upload">Upload</Link>
-                <Link to="/profile">Profile</Link>
-                <button onClick={logout} className="rounded bg-slate-900 px-3 py-1.5 text-white">Logout</button>
-              </>
-            ) : (
-              <>
-                <Link to="/login">Login</Link>
-                <Link to="/register">Register</Link>
-              </>
-            )}
-          </nav>
-        </div>
-      </header>
+      <Navbar />
 
-      <main className="mx-auto max-w-5xl p-4">
+      <main className="mx-auto max-w-6xl px-4 py-6">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/auth" element={<AuthPage />} />
+          <Route path="/login" element={<Navigate to="/auth?mode=login" replace />} />
+          <Route path="/register" element={<Navigate to="/auth?mode=signup" replace />} />
+          <Route path="/note/:id" element={<NoteDetailsPage />} />
           <Route path="/notes/:id" element={<NoteDetailsPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
           <Route
             path="/upload"
             element={
@@ -66,6 +41,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
     </div>

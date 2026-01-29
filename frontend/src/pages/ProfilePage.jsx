@@ -1,11 +1,19 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { clearToken } from '../lib/auth';
+import { toastError, toastInfo, toastSuccess } from '../lib/toast';
+import { Card } from '../components/Card';
+import { Avatar } from '../components/Avatar';
+import { Tabs } from '../components/Tabs';
+import { NoteCard } from '../components/NoteCard';
 
 export default function ProfilePage() {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('uploads');
 
   useEffect(() => {
     (async () => {
@@ -15,58 +23,116 @@ export default function ProfilePage() {
         const res = await api.get('/api/me');
         setProfile(res.data);
       } catch (e) {
-        setError(e?.response?.data?.message || 'Failed to load profile');
+        const status = e?.response?.status;
+        const message = e?.response?.data?.message;
+        if (status === 401 || status === 404) {
+          clearToken();
+          navigate('/login', { replace: true });
+          return;
+        }
+        setError(message || 'Failed to load profile');
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
+  const user = profile?.user;
+  const uploads = profile?.uploads || [];
+  const downloads = profile?.downloads || [];
+
+  const downloadNotes = useMemo(() => {
+    return downloads
+      .map((d) => ({
+        ...(d.note || {}),
+        downloadedAt: d.downloadedAt,
+      }))
+      .filter((n) => n._id);
+  }, [downloads]);
+
+  async function handleDownload(note) {
+    try {
+      const res = await api.get(`/api/notes/${note._id}/download`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' });
+
+      const disposition = res.headers['content-disposition'] || '';
+      const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(disposition);
+      const fileName = decodeURIComponent(match?.[1] || match?.[2] || note.originalName || 'note');
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toastSuccess('Download started!');
+    } catch (e) {
+      if (e?.response?.status === 401) {
+        toastInfo('Please login again.');
+        clearToken();
+        navigate('/auth?mode=login');
+        return;
+      }
+      toastError(e?.response?.data?.message || 'Download failed');
+    }
+  }
+
   if (loading) return <div>Loading…</div>;
-  if (error) return <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>;
+  if (error) return <div className="rounded-xl border border-destructive/20 bg-white/70 p-3 text-sm text-destructive">{error}</div>;
   if (!profile) return null;
 
-  const { user, uploads, downloads } = profile;
-
   return (
-    <div className="space-y-4">
-      <div className="rounded border bg-white p-4">
-        <div className="text-lg font-semibold">Profile</div>
-        <div className="mt-2 text-sm text-slate-700">
-          <div><span className="font-medium">Name:</span> {user.name}</div>
-          <div><span className="font-medium">Email:</span> {user.email}</div>
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-primary/25 via-sky-400/15 to-accent/15 border border-white/20 dark:border-white/10 shadow-soft">
+        <div className="p-8 text-center">
+          <Avatar name={user?.name} className="mx-auto h-20 w-20 text-2xl border-2 border-white/50" />
+          <div className="mt-3 font-display text-2xl font-bold">{user?.name}</div>
+          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">{user?.email}</div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded border bg-white p-4">
-        <div className="text-base font-semibold">My Uploads</div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          {(uploads || []).map((n) => (
-            <div key={n._id} className="rounded border p-3">
-              <div className="font-medium">{n.title}</div>
-              <div className="text-sm text-slate-600">{n.subject} • {n.semester}</div>
-              <div className="mt-2 text-sm"><Link className="text-blue-600" to={`/notes/${n._id}`}>Open</Link></div>
-            </div>
-          ))}
-          {(uploads || []).length === 0 && <div className="text-sm text-slate-600">No uploads yet.</div>}
-        </div>
-      </div>
+      <Card className="p-6">
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { value: 'uploads', label: 'My Uploads' },
+            { value: 'downloads', label: 'My Downloads' },
+          ]}
+        />
 
-      <div className="rounded border bg-white p-4">
-        <div className="text-base font-semibold">My Downloads</div>
-        <div className="mt-3 space-y-2">
-          {(downloads || []).map((d, idx) => (
-            <div key={idx} className="rounded border p-3">
-              <div className="font-medium">{d.note?.title || 'Unknown note'}</div>
-              <div className="text-sm text-slate-600">
-                {d.note?.subject || ''} {d.note?.semester ? `• ${d.note.semester}` : ''}
+        {tab === 'uploads' ? (
+          <div className="mt-5">
+            {uploads.length === 0 ? (
+              <div className="text-sm text-slate-600 dark:text-slate-300">No uploads yet.</div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {uploads.map((n) => (
+                  <NoteCard key={n._id} note={n} onDownload={handleDownload} />
+                ))}
               </div>
-              <div className="mt-1 text-xs text-slate-500">Downloaded at: {new Date(d.downloadedAt).toLocaleString()}</div>
-            </div>
-          ))}
-          {(downloads || []).length === 0 && <div className="text-sm text-slate-600">No downloads yet.</div>}
-        </div>
-      </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-5">
+            {downloadNotes.length === 0 ? (
+              <div className="text-sm text-slate-600 dark:text-slate-300">No downloads yet.</div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {downloadNotes.map((n) => (
+                  <NoteCard
+                    key={n._id}
+                    note={{ ...n, downloadCount: n.downloadCount || 0 }}
+                    onDownload={handleDownload}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

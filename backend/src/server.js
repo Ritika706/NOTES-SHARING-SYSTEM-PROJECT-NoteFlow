@@ -9,6 +9,8 @@ const { connectDb } = require('./db');
 const { authRouter } = require('./routes/auth');
 const { notesRouter } = require('./routes/notes');
 const { meRouter } = require('./routes/me');
+const { Note } = require('./models/Note');
+const { User } = require('./models/User');
 
 const app = express();
 
@@ -27,6 +29,17 @@ app.use(
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 app.get('/health', (req, res) => res.json({ ok: true }));
+
+app.get('/api/stats', async (req, res) => {
+  const [totalNotes, contributorsAgg, downloadsAgg] = await Promise.all([
+    Note.countDocuments(),
+    User.countDocuments(),
+    Note.aggregate([{ $group: { _id: null, total: { $sum: '$downloadCount' } } }]),
+  ]);
+
+  const totalDownloads = Number(downloadsAgg?.[0]?.total || 0);
+  return res.json({ totalNotes, contributors: contributorsAgg, totalDownloads });
+});
 app.use('/api/auth', authRouter);
 app.use('/api/notes', notesRouter);
 app.use('/api/me', meRouter);

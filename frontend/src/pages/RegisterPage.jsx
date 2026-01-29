@@ -27,7 +27,7 @@ export default function RegisterPage() {
   return (
     <div className="mx-auto max-w-md rounded border bg-white p-6">
       <h1 className="text-xl font-semibold">Register</h1>
-      <p className="mt-1 text-sm text-slate-600">Create your Notely account.</p>
+      <p className="mt-1 text-sm text-slate-600">Create your NoteFlow account.</p>
 
       {error && <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 

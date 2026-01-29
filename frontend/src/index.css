@@ -2,11 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-html,
-body {
-  height: 100%;
+@layer base {
+  :root {
+    --primary: 175 60% 35%;
+    --accent: 15 85% 60%;
+    --background: 210 20% 98%;
+    --card: 0 0% 100%;
+    --muted: 210 15% 95%;
+    --destructive: 0 72% 51%;
+    --success: 145 65% 42%;
+  }
+
+  .dark {
+    --primary: 175 55% 50%;
+    --accent: 15 80% 55%;
+    --background: 220 25% 8%;
+    --card: 220 20% 12%;
+    --muted: 220 15% 18%;
+    --destructive: 0 65% 50%;
+    --success: 145 60% 50%;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-slate-900 dark:text-slate-50;
+    font-family: theme('fontFamily.sans');
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: theme('fontFamily.display');
+  }
 }
 
-body {
-  @apply bg-slate-50 text-slate-900;
+@layer components {
+  .glass {
+    @apply bg-white/60 dark:bg-card/60 backdrop-blur border border-white/20 dark:border-white/10;
+  }
 }

@@ -1,6 +1,6 @@
-# NOTES-SHARING-SYSTEM-PROJECT-Notely-
+# NOTES-SHARING-SYSTEM-PROJECT-NoteFlow-
 
-Notely is a MERN Notes Sharing System where students can:
+NoteFlow is a MERN Notes Sharing System where students can:
 - Register/Login (bcrypt password hashing + JWT auth)
 - Browse notes (search + filter)
 - Upload notes (protected)

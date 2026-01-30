@@ -16,14 +16,36 @@ const app = express();
 
 app.use(express.json());
 
-const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
-app.use(
-  cors({
-    origin: corsOrigin.split(',').map((s) => s.trim()),
-    credentials: true,
-    exposedHeaders: ['Content-Disposition'],
-  })
-);
+const corsOriginRaw = process.env.CORS_ORIGIN || 'http://localhost:5173';
+const corsAllowList = corsOriginRaw
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function isCorsOriginAllowed(origin) {
+  // Allow non-browser requests (no Origin header)
+  if (!origin) return true;
+
+  return corsAllowList.some((allowed) => {
+    if (allowed === '*') return true;
+    if (allowed.startsWith('*.')) {
+      // e.g. '*.vercel.app' matches 'https://foo.vercel.app'
+      return origin.endsWith(allowed.slice(1));
+    }
+    return origin === allowed;
+  });
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    callback(null, isCorsOriginAllowed(origin));
+  },
+  credentials: true,
+  exposedHeaders: ['Content-Disposition'],
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Public preview support
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

@@ -1,9 +1,12 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
+const { Readable } = require('stream');
 const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
+const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
 
 const router = express.Router();
 
@@ -55,7 +58,7 @@ router.get('/', async (req, res) => {
 
   const notes = await Note.find(filter)
     .sort({ createdAt: -1 })
-    .select('title subject semester description mimeType originalName uploadedBy createdAt downloadCount likesCount ratingAvg ratingCount');
+    .select('title subject semester description mimeType originalName uploadedBy createdAt downloadCount likesCount ratingAvg ratingCount filePath fileUrl');
 
   return res.json({ notes });
 });
@@ -66,7 +69,7 @@ router.get('/top-rated', async (req, res) => {
   const notes = await Note.find({ ratingCount: { $gt: 0 } })
     .sort({ ratingAvg: -1, ratingCount: -1, createdAt: -1 })
     .limit(limit)
-    .select('title subject semester description mimeType originalName uploadedBy createdAt downloadCount likesCount ratingAvg ratingCount');
+    .select('title subject semester description mimeType originalName uploadedBy createdAt downloadCount likesCount ratingAvg ratingCount filePath fileUrl');
 
   return res.json({ notes });
 });
@@ -173,12 +176,34 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
     return res.status(400).json({ message: 'file is required' });
   }
 
+  let fileUrl = '';
+  if (isCloudinaryConfigured()) {
+    try {
+      const uploaded = await uploadToCloudinary(req.file.path, {
+        folder: process.env.CLOUDINARY_FOLDER || 'noteflow',
+        resourceType: 'auto',
+      });
+      fileUrl = uploaded?.url || '';
+    } catch (e) {
+      // If Cloudinary fails, fall back to local filePath.
+      fileUrl = '';
+    } finally {
+      // Best-effort cleanup of local temp file (Render disk is ephemeral anyway)
+      try {
+        await fs.promises.unlink(req.file.path);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
   const note = await Note.create({
     title: String(title),
     subject: String(subject),
     semester: String(semester),
     description: String(description || ''),
     filePath: req.file.filename,
+    fileUrl,
     originalName: req.file.originalname,
     mimeType: req.file.mimetype,
     downloadCount: 0,
@@ -199,6 +224,28 @@ router.get('/:id/download', authRequired, async (req, res) => {
   );
 
   await Note.updateOne({ _id: note._id }, { $inc: { downloadCount: 1 } });
+
+  if (note.fileUrl) {
+    try {
+      const upstream = await fetch(note.fileUrl);
+      if (!upstream.ok) {
+        return res.status(502).json({ message: 'Failed to fetch file from storage' });
+      }
+
+      const contentType = upstream.headers.get('content-type') || note.mimeType || 'application/octet-stream';
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(note.originalName)}"`);
+
+      if (!upstream.body) {
+        return res.status(502).json({ message: 'File stream unavailable' });
+      }
+
+      Readable.fromWeb(upstream.body).pipe(res);
+      return;
+    } catch (e) {
+      return res.status(502).json({ message: 'Failed to fetch file from storage' });
+    }
+  }
 
   const absolutePath = path.join(uploadsDir, note.filePath);
   return res.download(absolutePath, note.originalName);

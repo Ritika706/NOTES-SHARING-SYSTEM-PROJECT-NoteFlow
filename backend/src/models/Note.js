@@ -7,6 +7,7 @@ const noteSchema = new mongoose.Schema(
     semester: { type: String, required: true, trim: true },
     description: { type: String, default: '' },
     filePath: { type: String, required: true },
+    fileUrl: { type: String, default: '' },
     originalName: { type: String, required: true },
     mimeType: { type: String, required: true },
     downloadCount: { type: Number, default: 0 },

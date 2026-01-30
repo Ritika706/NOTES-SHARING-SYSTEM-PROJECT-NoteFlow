@@ -43,6 +43,7 @@ export default function NoteDetailsPage() {
   }, []);
 
   const previewUrl = useMemo(() => {
+    if (note?.fileUrl) return note.fileUrl;
     if (!note?.filePath) return null;
     const base = import.meta.env.VITE_API_URL || 'http://localhost:5000';
     return `${base}/uploads/${note.filePath}`;

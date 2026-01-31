@@ -7,7 +7,6 @@ const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
 const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
-const { compressPdfWithILovePdf, isILovePdfConfigured } = require('../lib/ilovepdfCompress');
 const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
@@ -199,121 +198,34 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
 
   let fileUrl = '';
   if (isCloudinaryConfigured()) {
-    const debugTiming = envBool('DEBUG_UPLOAD_TIMING', false);
-    const startedAt = Date.now();
-    const cleanupPaths = new Set([req.file.path]);
+    const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+
+    // Check file size - reject if >= 10MB
+    if (req.file.size >= MAX_FILE_BYTES) {
+      // Cleanup temp file
+      try { await fs.promises.unlink(req.file.path); } catch (e) { /* ignore */ }
+      return res.status(413).json({ message: 'File size too large. Please upload a file smaller than 10MB.' });
+    }
 
     try {
-      let uploadPath = req.file.path;
-      let compressMs = 0;
-      let cloudinaryMs = 0;
-
-      const MAX_PDF_BYTES = 10 * 1024 * 1024;
-      const isPdf = String(req.file.mimetype || '').toLowerCase().includes('pdf');
-
-      // If PDF > 10MB, compress via iLovePDF before uploading.
-      if (isPdf && req.file.size > MAX_PDF_BYTES) {
-        if (!isILovePdfConfigured()) {
-          return res.status(503).json({
-            message:
-              'PDF compression service is not configured. Please set ILOVEPDF_PUBLIC_KEY and ILOVEPDF_SECRET_KEY on the server.',
-          });
-        }
-
-        const c0 = Date.now();
-        const compressed = await compressPdfWithILovePdf(req.file.path, {
-          compressionLevel: envString('ILOVEPDF_COMPRESSION_LEVEL', 'recommended'),
-        });
-        compressMs = Date.now() - c0;
-        uploadPath = compressed.path;
-        cleanupPaths.add(compressed.path);
-
-        if (compressed.size > MAX_PDF_BYTES) {
-          return res.status(413).json({ message: 'File size too large' });
-        }
-      }
-
-      const u0 = Date.now();
-      const uploadStat = await fs.promises.stat(uploadPath);
-      const uploadSize = Number(uploadStat.size || 0);
-      // Prefer chunked upload for larger files (especially raw/PDF). This doesn't bypass Cloudinary plan limits,
-      // but avoids failures due to single-request size constraints.
-      const LARGE_UPLOAD_THRESHOLD = 9 * 1024 * 1024; // ~9MB
-      const isImage = String(req.file.mimetype || '').startsWith('image/');
-      const forceLargeUpload = !isImage ? uploadSize >= LARGE_UPLOAD_THRESHOLD : false;
-      
-      console.log(`[upload] starting cloudinary upload: path=${uploadPath} size=${uploadSize}B mime=${req.file.mimetype} forceLarge=${forceLargeUpload}`);
-      
-      const uploaded = await uploadToCloudinary(uploadPath, {
+      const uploaded = await uploadToCloudinary(req.file.path, {
         folder: envString('CLOUDINARY_FOLDER', 'noteflow'),
         resourceType: String(req.file.mimetype || '').startsWith('image/') ? 'image' : 'raw',
-        forceLargeUpload,
       });
-      cloudinaryMs = Date.now() - u0;
       fileUrl = uploaded?.url || '';
 
-      // If Cloudinary is configured and we attempted an upload, do not create a note without a URL.
       if (!fileUrl) {
         return res.status(502).json({ message: 'Failed to upload file to storage. Please try again.' });
       }
-
-      if (debugTiming) {
-        const totalMs = Date.now() - startedAt;
-        console.log(
-          `[upload] requireCloudinary=${requireCloudinary} configured=true mime=${req.file.mimetype} size=${req.file.size}B uploadSize=${uploadSize}B compressMs=${compressMs} cloudinaryMs=${cloudinaryMs} totalMs=${totalMs}`
-        );
-      }
     } catch (e) {
-      const msg = String(
-        e?.error?.message || e?.message || ''
-      );
-      const lower = msg.toLowerCase();
-
-      if (
-        lower.includes('file size too large') ||
-        lower.includes('too large to upload') ||
-        lower.includes('maximum upload size') ||
-        (lower.includes('too large') && (lower.includes('file') || lower.includes('upload') || lower.includes('size')))
-      ) {
-        return res.status(413).json({
-          message:
-            'File is too large for storage. Please upload a smaller file, or upgrade your Cloudinary plan / increase limits. If this is a PDF, try compressing it locally before upload.',
-        });
-      }
-
-      if (debugTiming) {
-        console.log('[upload] failed:', msg || e);
-      }
-
-      // Always log the root message on server (helps on Render even when debugTiming is off)
-      console.error('[upload] FULL ERROR:', e);
-      if (msg) {
-        console.error('[upload] cloudinary error:', msg);
-      } else {
-        console.error('[upload] cloudinary error (no message)');
-      }
-      // If Cloudinary fails, do NOT silently fall back to local in production.
-      // Local uploads on Render can disappear after redeploy/restart.
-      const truncated = msg && msg.length > 300 ? `${msg.slice(0, 300)}…` : msg;
+      const msg = String(e?.error?.message || e?.message || '');
+      console.error('[upload] cloudinary error:', msg || e);
       return res.status(502).json({
-        message: truncated
-          ? `Failed to upload file to storage: ${truncated}`
-          : 'Failed to upload file to storage. Please try again.',
+        message: msg ? `Failed to upload: ${msg}` : 'Failed to upload file to storage. Please try again.',
       });
     } finally {
-      try {
-        await Promise.all(
-          Array.from(cleanupPaths).map(async (p) => {
-            try {
-              await fs.promises.unlink(p);
-            } catch (e) {
-              // ignore
-            }
-          })
-        );
-      } catch (e) {
-        // ignore
-      }
+      // Cleanup temp file
+      try { await fs.promises.unlink(req.file.path); } catch (e) { /* ignore */ }
     }
   }
 

@@ -233,9 +233,11 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
 
       const u0 = Date.now();
       const isPdf = String(req.file.mimetype || '').includes('pdf');
-      // If the PDF is above the configured maxBytes, prefer chunked upload.
-      // This doesn't bypass Cloudinary plan limits, but avoids failures due to single-request size constraints.
-      const forceLargeUpload = isPdf ? req.file.size > maxBytes : false;
+      // Prefer chunked upload for larger files (especially raw/PDF). This doesn't bypass Cloudinary plan limits,
+      // but avoids failures due to single-request size constraints.
+      const LARGE_UPLOAD_THRESHOLD = 9 * 1024 * 1024; // ~9MB
+      const isImage = String(req.file.mimetype || '').startsWith('image/');
+      const forceLargeUpload = !isImage ? req.file.size >= LARGE_UPLOAD_THRESHOLD : false;
       const uploaded = await uploadToCloudinary(uploadPath, {
         folder: envString('CLOUDINARY_FOLDER', 'noteflow'),
         resourceType: String(req.file.mimetype || '').startsWith('image/') ? 'image' : 'raw',
@@ -269,7 +271,12 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
       );
       const lower = msg.toLowerCase();
 
-      if (lower.includes('file size too large') || (lower.includes('too large') && lower.includes('file'))) {
+      if (
+        lower.includes('file size too large') ||
+        lower.includes('too large to upload') ||
+        lower.includes('maximum upload size') ||
+        (lower.includes('too large') && (lower.includes('file') || lower.includes('upload') || lower.includes('size')))
+      ) {
         return res.status(413).json({
           message:
             'File is too large for storage. Please upload a smaller file, or upgrade your Cloudinary plan / increase limits. If this is a PDF, try compressing it locally before upload.',
@@ -278,6 +285,13 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
 
       if (debugTiming) {
         console.log('[upload] failed:', msg || e);
+      }
+
+      // Always log the root message on server (helps on Render even when debugTiming is off)
+      if (msg) {
+        console.error('[upload] cloudinary error:', msg);
+      } else {
+        console.error('[upload] cloudinary error');
       }
       // If Cloudinary fails, do NOT silently fall back to local in production.
       // Local uploads on Render can disappear after redeploy/restart.

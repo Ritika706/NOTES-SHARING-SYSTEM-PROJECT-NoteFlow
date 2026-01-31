@@ -1,6 +1,15 @@
 const cloudinary = require('cloudinary').v2;
 const { envBool, envString } = require('./env');
 
+function getCloudinaryErrMessage(err) {
+  return String(
+    err?.error?.message ||
+      err?.message ||
+      err?.error ||
+      ''
+  );
+}
+
 function isCloudinaryConfigured() {
   return Boolean(
     process.env.CLOUDINARY_CLOUD_NAME &&
@@ -32,14 +41,36 @@ async function uploadToCloudinary(
   const uploadFn = useLargeUpload
     ? cloudinary.uploader.upload_large.bind(cloudinary.uploader)
     : cloudinary.uploader.upload.bind(cloudinary.uploader);
-  const res = await uploadFn(localFilePath, {
+
+  const baseOptions = {
     folder,
     resource_type: resourceType,
     type: 'upload',
-    ...(accessMode ? { access_mode: accessMode } : {}),
     use_filename: true,
     unique_filename: true,
-  });
+  };
+
+  const optionsWithAccess = {
+    ...baseOptions,
+    ...(accessMode ? { access_mode: accessMode } : {}),
+  };
+
+  let res;
+  try {
+    res = await uploadFn(localFilePath, optionsWithAccess);
+  } catch (e) {
+    const msg = getCloudinaryErrMessage(e);
+    const lower = msg.toLowerCase();
+
+    // Some Cloudinary accounts/plans can reject access_mode. Retry once without it.
+    if (accessMode && (lower.includes('access_mode') || lower.includes('access mode')) && lower.includes('invalid')) {
+      res = await uploadFn(localFilePath, baseOptions);
+    } else {
+      // Preserve the original error message for upstream mapping/logging.
+      e.message = msg || e.message;
+      throw e;
+    }
+  }
 
   return {
     url: res.secure_url,

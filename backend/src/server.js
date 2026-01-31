@@ -13,6 +13,7 @@ const { Note } = require('./models/Note');
 const { User } = require('./models/User');
 const mongoose = require('mongoose');
 const { isCloudinaryConfigured } = require('./lib/cloudinary');
+const { envBool, envString } = require('./lib/env');
 
 const app = express();
 
@@ -54,10 +55,13 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 app.get('/health', (req, res) => {
   const base = { ok: true };
-  const includeDb = String(process.env.DEBUG_DB_INFO || 'false').toLowerCase() === 'true';
+  const includeDb = envBool('DEBUG_DB_INFO', false);
   if (!includeDb) return res.json(base);
 
   const conn = mongoose.connection;
+  const isHosted = Boolean(process.env.RENDER || process.env.RENDER_GIT_COMMIT || process.env.VERCEL);
+  const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  const requireCloudinary = envBool('REQUIRE_CLOUDINARY', isHosted || isProd);
   return res.json({
     ...base,
     db: {
@@ -67,9 +71,14 @@ app.get('/health', (req, res) => {
     },
     cloudinary: {
       configured: isCloudinaryConfigured(),
-      folder: process.env.CLOUDINARY_FOLDER || null,
-      accessMode: process.env.CLOUDINARY_ACCESS_MODE || null,
-      requireCloudinary: String(process.env.REQUIRE_CLOUDINARY || 'false').toLowerCase() === 'true',
+      folder: envString('CLOUDINARY_FOLDER', '') || null,
+      accessMode: envString('CLOUDINARY_ACCESS_MODE', '') || null,
+      requireCloudinary,
+      // Safe diagnostics (no secrets): helps debug hidden whitespace or wrong service/env.
+      requireCloudinaryRaw: process.env.REQUIRE_CLOUDINARY ?? null,
+      cloudNamePresent: Boolean(envString('CLOUDINARY_CLOUD_NAME', '')),
+      apiKeyPresent: Boolean(envString('CLOUDINARY_API_KEY', '')),
+      apiSecretPresent: Boolean(envString('CLOUDINARY_API_SECRET', '')),
     },
     build: {
       renderGitCommit: process.env.RENDER_GIT_COMMIT || null,

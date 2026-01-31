@@ -8,6 +8,7 @@ const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
 const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
 const { compressPdfBestEffort, getMaxBytes } = require('../lib/pdfCompress');
+const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
 
@@ -185,7 +186,10 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
     return res.status(400).json({ message: 'file is required' });
   }
 
-  const requireCloudinary = String(process.env.REQUIRE_CLOUDINARY || 'false').toLowerCase() === 'true';
+  const isHosted = Boolean(process.env.RENDER || process.env.RENDER_GIT_COMMIT || process.env.VERCEL);
+  const isProd = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  // On hosted environments (Render/Vercel) local disk is not reliable. Default to requiring Cloudinary.
+  const requireCloudinary = envBool('REQUIRE_CLOUDINARY', isHosted || isProd);
   if (requireCloudinary && !isCloudinaryConfigured()) {
     return res.status(503).json({
       message:
@@ -196,8 +200,8 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
   let fileUrl = '';
   if (isCloudinaryConfigured()) {
     const maxBytes = getMaxBytes();
-    const shouldTryCompress = String(process.env.PDF_COMPRESS || 'true').toLowerCase() !== 'false';
-    const debugTiming = String(process.env.DEBUG_UPLOAD_TIMING || 'false').toLowerCase() === 'true';
+    const shouldTryCompress = envBool('PDF_COMPRESS', true);
+    const debugTiming = envBool('DEBUG_UPLOAD_TIMING', false);
     const startedAt = Date.now();
 
     try {
@@ -228,16 +232,21 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
 
       const u0 = Date.now();
       const uploaded = await uploadToCloudinary(uploadPath, {
-        folder: process.env.CLOUDINARY_FOLDER || 'noteflow',
+        folder: envString('CLOUDINARY_FOLDER', 'noteflow'),
         resourceType: String(req.file.mimetype || '').startsWith('image/') ? 'image' : 'raw',
       });
       cloudinaryMs = Date.now() - u0;
       fileUrl = uploaded?.url || '';
 
+      // If Cloudinary is configured and we attempted an upload, do not create a note without a URL.
+      if (!fileUrl) {
+        return res.status(502).json({ message: 'Failed to upload file to storage. Please try again.' });
+      }
+
       if (debugTiming) {
         const totalMs = Date.now() - startedAt;
         console.log(
-          `[upload] mime=${req.file.mimetype} size=${req.file.size}B compressMs=${compressMs} cloudinaryMs=${cloudinaryMs} totalMs=${totalMs}`
+          `[upload] requireCloudinary=${requireCloudinary} configured=true mime=${req.file.mimetype} size=${req.file.size}B compressMs=${compressMs} cloudinaryMs=${cloudinaryMs} totalMs=${totalMs}`
         );
       }
 

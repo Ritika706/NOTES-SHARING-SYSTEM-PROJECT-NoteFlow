@@ -1,4 +1,5 @@
 const cloudinary = require('cloudinary').v2;
+const { envBool, envString } = require('./env');
 
 function isCloudinaryConfigured() {
   return Boolean(
@@ -22,8 +23,8 @@ async function uploadToCloudinary(localFilePath, { folder = 'noteflow', resource
   if (!isCloudinaryConfigured()) return null;
   initCloudinary();
 
-  const useLargeUpload = String(process.env.CLOUDINARY_USE_LARGE_UPLOAD || 'false').toLowerCase() === 'true';
-  const accessMode = String(process.env.CLOUDINARY_ACCESS_MODE || '').trim();
+  const useLargeUpload = envBool('CLOUDINARY_USE_LARGE_UPLOAD', false);
+  const accessMode = envString('CLOUDINARY_ACCESS_MODE', '');
 
   const uploadFn = useLargeUpload
     ? cloudinary.uploader.upload_large.bind(cloudinary.uploader)

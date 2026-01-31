@@ -67,6 +67,11 @@ export default function UploadPage() {
       toastSuccess('Note uploaded successfully!');
       navigate(`/note/${res.data.note?._id || ''}`);
     } catch (err) {
+      const status = err?.response?.status;
+      if (status === 413) {
+        alert('File size too large');
+        return;
+      }
       toastError(await getAxiosErrorMessage(err, 'Failed to upload note'));
     } finally {
       setLoading(false);

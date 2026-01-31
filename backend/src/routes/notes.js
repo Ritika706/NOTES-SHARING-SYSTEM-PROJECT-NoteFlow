@@ -7,7 +7,7 @@ const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
 const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
-const { compressPdfBestEffort, getMaxBytes } = require('../lib/pdfCompress');
+const { compressPdfWithILovePdf, isILovePdfConfigured } = require('../lib/ilovepdfCompress');
 const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
@@ -199,45 +199,48 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
 
   let fileUrl = '';
   if (isCloudinaryConfigured()) {
-    const maxBytes = getMaxBytes();
-    // Hosted environments typically don't have Ghostscript; default to NOT compressing server-side.
-    const shouldTryCompress = envBool('PDF_COMPRESS', !(isHosted || isProd));
     const debugTiming = envBool('DEBUG_UPLOAD_TIMING', false);
     const startedAt = Date.now();
+    const cleanupPaths = new Set([req.file.path]);
 
     try {
       let uploadPath = req.file.path;
-      let compressedTempPath = null;
       let compressMs = 0;
       let cloudinaryMs = 0;
 
-      // If Cloudinary free plan rejects >10MB PDFs, try to compress automatically
-      if (shouldTryCompress && String(req.file.mimetype || '').includes('pdf')) {
-        const stat = await fs.promises.stat(req.file.path);
-        if (stat.size > maxBytes) {
-          const c0 = Date.now();
-          const compressed = await compressPdfBestEffort(req.file.path);
-          compressMs = Date.now() - c0;
-          if (compressed.path !== req.file.path) {
-            uploadPath = compressed.path;
-            compressedTempPath = compressed.path;
-          }
-          if (compressed.size > maxBytes) {
-            return res.status(413).json({
-              message:
-                'PDF is still too large even after compression. Please upload a smaller PDF, or increase PDF_CLOUDINARY_MAX_MB / upgrade your Cloudinary plan.',
-            });
-          }
+      const MAX_PDF_BYTES = 10 * 1024 * 1024;
+      const isPdf = String(req.file.mimetype || '').toLowerCase().includes('pdf');
+
+      // If PDF > 10MB, compress via iLovePDF before uploading.
+      if (isPdf && req.file.size > MAX_PDF_BYTES) {
+        if (!isILovePdfConfigured()) {
+          return res.status(503).json({
+            message:
+              'PDF compression service is not configured. Please set ILOVEPDF_PUBLIC_KEY and ILOVEPDF_SECRET_KEY on the server.',
+          });
+        }
+
+        const c0 = Date.now();
+        const compressed = await compressPdfWithILovePdf(req.file.path, {
+          compressionLevel: envString('ILOVEPDF_COMPRESSION_LEVEL', 'recommended'),
+        });
+        compressMs = Date.now() - c0;
+        uploadPath = compressed.path;
+        cleanupPaths.add(compressed.path);
+
+        if (compressed.size > MAX_PDF_BYTES) {
+          return res.status(413).json({ message: 'File size too large' });
         }
       }
 
       const u0 = Date.now();
-      const isPdf = String(req.file.mimetype || '').includes('pdf');
+      const uploadStat = await fs.promises.stat(uploadPath);
+      const uploadSize = Number(uploadStat.size || 0);
       // Prefer chunked upload for larger files (especially raw/PDF). This doesn't bypass Cloudinary plan limits,
       // but avoids failures due to single-request size constraints.
       const LARGE_UPLOAD_THRESHOLD = 9 * 1024 * 1024; // ~9MB
       const isImage = String(req.file.mimetype || '').startsWith('image/');
-      const forceLargeUpload = !isImage ? req.file.size >= LARGE_UPLOAD_THRESHOLD : false;
+      const forceLargeUpload = !isImage ? uploadSize >= LARGE_UPLOAD_THRESHOLD : false;
       const uploaded = await uploadToCloudinary(uploadPath, {
         folder: envString('CLOUDINARY_FOLDER', 'noteflow'),
         resourceType: String(req.file.mimetype || '').startsWith('image/') ? 'image' : 'raw',
@@ -254,16 +257,8 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
       if (debugTiming) {
         const totalMs = Date.now() - startedAt;
         console.log(
-          `[upload] requireCloudinary=${requireCloudinary} configured=true mime=${req.file.mimetype} size=${req.file.size}B compressMs=${compressMs} cloudinaryMs=${cloudinaryMs} totalMs=${totalMs}`
+          `[upload] requireCloudinary=${requireCloudinary} configured=true mime=${req.file.mimetype} size=${req.file.size}B uploadSize=${uploadSize}B compressMs=${compressMs} cloudinaryMs=${cloudinaryMs} totalMs=${totalMs}`
         );
-      }
-
-      if (compressedTempPath) {
-        try {
-          await fs.promises.unlink(compressedTempPath);
-        } catch (e) {
-          // ignore
-        }
       }
     } catch (e) {
       const msg = String(
@@ -302,9 +297,16 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
           : 'Failed to upload file to storage. Please try again.',
       });
     } finally {
-      // Best-effort cleanup of local temp file (Render disk is ephemeral anyway)
       try {
-        await fs.promises.unlink(req.file.path);
+        await Promise.all(
+          Array.from(cleanupPaths).map(async (p) => {
+            try {
+              await fs.promises.unlink(p);
+            } catch (e) {
+              // ignore
+            }
+          })
+        );
       } catch (e) {
         // ignore
       }

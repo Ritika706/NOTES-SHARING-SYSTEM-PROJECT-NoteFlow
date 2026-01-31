@@ -8,7 +8,7 @@ dotenv.config();
 const { connectDb } = require('../src/db');
 const { Note } = require('../src/models/Note');
 const { isCloudinaryConfigured, uploadToCloudinary } = require('../src/lib/cloudinary');
-const { compressPdfBestEffort, getMaxBytes } = require('../src/lib/pdfCompress');
+const { compressPdfWithILovePdf, isILovePdfConfigured } = require('../src/lib/ilovepdfCompress');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -75,20 +75,25 @@ async function main() {
     let uploadPath = localPath;
     let compressedTempPath = null;
     try {
-      const maxBytes = getMaxBytes();
-      const shouldTryCompress = String(process.env.PDF_COMPRESS || 'true').toLowerCase() !== 'false';
+      const MAX_PDF_BYTES = 10 * 1024 * 1024;
       const isPdf = String(note.mimeType || '').includes('pdf') || String(localPath).toLowerCase().endsWith('.pdf');
 
-      if (shouldTryCompress && isPdf) {
+      if (isPdf) {
         const stat = await fs.promises.stat(localPath);
-        if (stat.size > maxBytes) {
-          const compressed = await compressPdfBestEffort(localPath);
-          if (compressed.path !== localPath) {
-            uploadPath = compressed.path;
-            compressedTempPath = compressed.path;
+        if (stat.size > MAX_PDF_BYTES) {
+          if (!isILovePdfConfigured()) {
+            skippedCompressFailed += 1;
+            console.log('  ⚠️ iLovePDF is not configured, skipping');
+            continue;
           }
 
-          if (compressed.size > maxBytes) {
+          const compressed = await compressPdfWithILovePdf(localPath, {
+            compressionLevel: String(process.env.ILOVEPDF_COMPRESSION_LEVEL || 'recommended'),
+          });
+          uploadPath = compressed.path;
+          compressedTempPath = compressed.path;
+
+          if (compressed.size > MAX_PDF_BYTES) {
             skippedTooLarge += 1;
             console.log('  ⚠️ still > 10MB after compression, skipping');
             continue;

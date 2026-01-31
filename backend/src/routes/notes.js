@@ -229,7 +229,7 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
       const u0 = Date.now();
       const uploaded = await uploadToCloudinary(uploadPath, {
         folder: process.env.CLOUDINARY_FOLDER || 'noteflow',
-        resourceType: 'auto',
+        resourceType: String(req.file.mimetype || '').startsWith('image/') ? 'image' : 'raw',
       });
       cloudinaryMs = Date.now() - u0;
       fileUrl = uploaded?.url || '';

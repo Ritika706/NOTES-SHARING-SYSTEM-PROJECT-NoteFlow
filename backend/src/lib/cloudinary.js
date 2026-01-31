@@ -23,6 +23,7 @@ async function uploadToCloudinary(localFilePath, { folder = 'noteflow', resource
   initCloudinary();
 
   const useLargeUpload = String(process.env.CLOUDINARY_USE_LARGE_UPLOAD || 'false').toLowerCase() === 'true';
+  const accessMode = String(process.env.CLOUDINARY_ACCESS_MODE || '').trim();
 
   const uploadFn = useLargeUpload
     ? cloudinary.uploader.upload_large.bind(cloudinary.uploader)
@@ -30,6 +31,8 @@ async function uploadToCloudinary(localFilePath, { folder = 'noteflow', resource
   const res = await uploadFn(localFilePath, {
     folder,
     resource_type: resourceType,
+    type: 'upload',
+    ...(accessMode ? { access_mode: accessMode } : {}),
     use_filename: true,
     unique_filename: true,
   });

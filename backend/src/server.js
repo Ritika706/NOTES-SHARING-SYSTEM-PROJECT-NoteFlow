@@ -18,6 +18,11 @@ const { envBool, envString } = require('./lib/env');
 
 const app = express();
 
+app.use((req, res, next) => {
+  res.setTimeout(10 * 60 * 1000); // 10 minutes
+  next();
+});
+
 app.use(express.json());
 
 const corsOriginRaw = process.env.CORS_ORIGIN || 'http://localhost:5173';

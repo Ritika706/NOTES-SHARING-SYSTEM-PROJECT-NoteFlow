@@ -45,7 +45,7 @@ const allowedMimeTypes = new Set([
 
 const upload = multer({
   storage,
-  limits: { fileSize: 25 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (!file?.mimetype || !allowedMimeTypes.has(file.mimetype)) {
       return cb(new Error('Only PDF, images, and Word docs allowed'));

@@ -4,6 +4,7 @@
   Usage:
     node scripts/purgeNotes.js --yes
     node scripts/purgeNotes.js --yes --only-missing-fileUrl
+    node scripts/purgeNotes.js --yes --only-legacy-image-upload
 
   Optional (very destructive): delete Cloudinary assets by folder prefix.
     CONFIRM_CLOUDINARY_PURGE=true node scripts/purgeNotes.js --yes --cloudinary
@@ -78,9 +79,24 @@ async function main() {
   await connectDb();
 
   const onlyMissingFileUrl = hasFlag('--only-missing-fileUrl');
+  const onlyLegacyImageUpload = hasFlag('--only-legacy-image-upload');
   const deleteFromCloudinary = hasFlag('--cloudinary');
 
-  const filter = onlyMissingFileUrl ? { $or: [{ fileUrl: '' }, { fileUrl: { $exists: false } }] } : {};
+  if (onlyMissingFileUrl && onlyLegacyImageUpload) {
+    console.error('Choose only one filter: --only-missing-fileUrl OR --only-legacy-image-upload');
+    process.exit(2);
+  }
+
+  let filter = {};
+  if (onlyMissingFileUrl) {
+    filter = { $or: [{ fileUrl: '' }, { fileUrl: { $exists: false } }] };
+  }
+  if (onlyLegacyImageUpload) {
+    // Matches older uploads like:
+    // https://res.cloudinary.com/.../image/upload/...something.pdf
+    // These can fail with 401 deny/ACL depending on account settings.
+    filter = { fileUrl: { $regex: '/image/upload/', $options: 'i' } };
+  }
 
   const notesToDelete = await Note.find(filter).select('_id').lean();
   const noteIds = notesToDelete.map((n) => n._id);

@@ -8,7 +8,8 @@
     "start": "node src/server.js",
     "migrate:cloudinary": "node scripts/migrateUploadsToCloudinary.js",
     "purge:notes": "node scripts/purgeNotes.js",
-    "purge:notes:missing-url": "node scripts/purgeNotes.js --yes --only-missing-fileUrl"
+    "purge:notes:missing-url": "node scripts/purgeNotes.js --yes --only-missing-fileUrl",
+    "purge:notes:legacy-image-upload": "node scripts/purgeNotes.js --yes --only-legacy-image-upload"
   },
   "keywords": [],
   "author": "",

@@ -13,6 +13,7 @@ const { Note } = require('./models/Note');
 const { User } = require('./models/User');
 const mongoose = require('mongoose');
 const { isCloudinaryConfigured } = require('./lib/cloudinary');
+const { isILovePdfConfigured } = require('./lib/ilovepdfCompress');
 const { envBool, envString } = require('./lib/env');
 
 const app = express();
@@ -79,6 +80,11 @@ app.get('/health', (req, res) => {
       cloudNamePresent: Boolean(envString('CLOUDINARY_CLOUD_NAME', '')),
       apiKeyPresent: Boolean(envString('CLOUDINARY_API_KEY', '')),
       apiSecretPresent: Boolean(envString('CLOUDINARY_API_SECRET', '')),
+    },
+    ilovepdf: {
+      configured: isILovePdfConfigured(),
+      publicKeyPresent: Boolean(envString('ILOVEPDF_PUBLIC_KEY', '')),
+      secretKeyPresent: Boolean(envString('ILOVEPDF_SECRET_KEY', '')),
     },
     build: {
       renderGitCommit: process.env.RENDER_GIT_COMMIT || null,

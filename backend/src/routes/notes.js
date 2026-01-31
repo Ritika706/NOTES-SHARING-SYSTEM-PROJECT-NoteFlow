@@ -218,19 +218,21 @@ router.get('/:id/download', authRequired, async (req, res) => {
   const note = await Note.findById(req.params.id);
   if (!note) return res.status(404).json({ message: 'Note not found' });
 
-  await User.updateOne(
-    { _id: req.user.id },
-    { $push: { downloads: { note: note._id, downloadedAt: new Date() } } }
-  );
-
-  await Note.updateOne({ _id: note._id }, { $inc: { downloadCount: 1 } });
-
   if (note.fileUrl) {
     try {
       const upstream = await fetch(note.fileUrl);
       if (!upstream.ok) {
         return res.status(502).json({ message: 'Failed to fetch file from storage' });
       }
+
+      // Track download only if the file is available
+      await Promise.all([
+        User.updateOne(
+          { _id: req.user.id },
+          { $push: { downloads: { note: note._id, downloadedAt: new Date() } } }
+        ),
+        Note.updateOne({ _id: note._id }, { $inc: { downloadCount: 1 } }),
+      ]);
 
       const contentType = upstream.headers.get('content-type') || note.mimeType || 'application/octet-stream';
       res.setHeader('Content-Type', contentType);
@@ -256,6 +258,16 @@ router.get('/:id/download', authRequired, async (req, res) => {
         'File not found on server. This can happen after redeploy. Please re-upload this note to restore the file.',
     });
   }
+
+  // Track download only if the file exists
+  await Promise.all([
+    User.updateOne(
+      { _id: req.user.id },
+      { $push: { downloads: { note: note._id, downloadedAt: new Date() } } }
+    ),
+    Note.updateOne({ _id: note._id }, { $inc: { downloadCount: 1 } }),
+  ]);
+
   return res.download(absolutePath, note.originalName);
 });
 

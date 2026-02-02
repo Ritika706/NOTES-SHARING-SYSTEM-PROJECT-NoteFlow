@@ -57,54 +57,40 @@ function generateOtp() {
   return String(n).padStart(6, '0');
 }
 
-// Create reusable transporter (cached)
-let cachedTransporter = null;
-function getTransporter() {
-  if (cachedTransporter) return cachedTransporter;
-
-  const host = process.env.SMTP_HOST;
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-  const port = Number(process.env.SMTP_PORT || 587);
-
-  if (!host || !user || !pass) {
-    console.log('[SMTP] Missing config - host:', !!host, 'user:', !!user, 'pass:', !!pass);
-    return null;
-  }
-
-  const nodemailer = require('nodemailer');
-  cachedTransporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-    pool: true,
-    maxConnections: 3,
-  });
-
-  return cachedTransporter;
-}
-
 async function sendResetOtpEmail({ to, name, otp }) {
-  const transporter = getTransporter();
-  const from = process.env.SMTP_FROM;
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM || 'NoteFlow <onboarding@resend.dev>';
 
-  if (!transporter || !from) {
-    console.log('[SMTP] Transporter or FROM missing - transporter:', !!transporter, 'from:', !!from);
+  if (!resendApiKey) {
+    console.log('[Email] RESEND_API_KEY not configured');
     return false;
   }
 
   try {
-    await transporter.sendMail({
-      from,
-      to,
-      subject: 'NoteFlow password reset OTP',
-      text: `Hi ${name || 'there'},\n\nYour NoteFlow password reset OTP is: ${otp}\n\nThis OTP will expire in 10 minutes.\n\nIf you did not request this, you can ignore this email.`,
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: 'NoteFlow password reset OTP',
+        text: `Hi ${name || 'there'},\n\nYour NoteFlow password reset OTP is: ${otp}\n\nThis OTP will expire in 10 minutes.\n\nIf you did not request this, you can ignore this email.`,
+      }),
     });
-    console.log('[SMTP] Email sent successfully to:', to);
+
+    if (!response.ok) {
+      const err = await response.json();
+      console.error('[Email] Resend error:', err);
+      return false;
+    }
+
+    console.log('[Email] Sent successfully to:', to);
     return true;
   } catch (e) {
-    console.error('[SMTP] Email send failed:', e.message);
+    console.error('[Email] Send failed:', e.message);
     return false;
   }
 }

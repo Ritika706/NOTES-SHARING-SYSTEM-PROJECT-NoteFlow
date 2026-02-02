@@ -2,7 +2,6 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const https = require('https');
 const { Readable } = require('stream');
 const { Note } = require('../models/Note');
 const { User } = require('../models/User');
@@ -256,21 +255,22 @@ router.get('/:id/preview', async (req, res) => {
   }
 
   try {
-    https.get(note.fileUrl, (upstream) => {
-      if (upstream.statusCode !== 200) {
-        return res.status(502).json({ message: 'Failed to fetch file' });
-      }
-
-      const contentType = upstream.headers['content-type'] || note.mimeType || 'application/octet-stream';
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(note.originalName)}"`);
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-
-      upstream.pipe(res);
-    }).on('error', (e) => {
-      console.error('Preview fetch error:', e.message);
+    const upstream = await fetch(note.fileUrl);
+    if (!upstream.ok) {
+      console.error('Preview fetch failed:', upstream.status, upstream.statusText);
       return res.status(502).json({ message: 'Failed to fetch file' });
-    });
+    }
+
+    const contentType = upstream.headers.get('content-type') || note.mimeType || 'application/octet-stream';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(note.originalName)}"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+
+    if (!upstream.body) {
+      return res.status(502).json({ message: 'File stream unavailable' });
+    }
+
+    Readable.fromWeb(upstream.body).pipe(res);
   } catch (e) {
     console.error('Preview error:', e.message);
     return res.status(502).json({ message: 'Failed to fetch file' });

@@ -12,6 +12,14 @@ import { NoteCard } from '../components/NoteCard';
 
 export default function HomePage() {
   const navigate = useNavigate();
+  
+  // Redirect to login if not logged in
+  useEffect(() => {
+    if (!isLoggedIn()) {
+      navigate('/auth?mode=login', { replace: true });
+    }
+  }, [navigate]);
+
   const [notes, setNotes] = useState([]);
   const [topRated, setTopRated] = useState([]);
   const [q, setQ] = useState('');
@@ -31,6 +39,7 @@ export default function HomePage() {
   }
 
   async function load() {
+    if (!isLoggedIn()) return;
     setLoading(true);
     setError('');
     try {
@@ -49,7 +58,9 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    load();
+    if (isLoggedIn()) {
+      load();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -121,6 +132,11 @@ export default function HomePage() {
     }
   }
 
+  // Don't render anything if not logged in (will redirect)
+  if (!isLoggedIn()) {
+    return null;
+  }
+
   return (
     <div className="space-y-8">
       <section className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/30 via-sky-400/20 to-accent/20 p-8 shadow-soft border border-white/30 dark:border-white/10">
@@ -134,14 +150,6 @@ export default function HomePage() {
           </p>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            {!isLoggedIn() ? (
-              <Button
-                className="bg-gradient-to-r from-accent to-accent/80"
-                onClick={() => navigate('/auth?mode=signup')}
-              >
-                Get Started
-              </Button>
-            ) : null}
             <Button variant="outline" onClick={() => document.getElementById('browse')?.scrollIntoView({ behavior: 'smooth' })}>
               Browse Notes
             </Button>

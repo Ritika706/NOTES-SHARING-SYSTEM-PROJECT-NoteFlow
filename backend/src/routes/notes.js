@@ -245,7 +245,7 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
   return res.status(201).json({ note });
 });
 
-// Public preview (proxy to Cloudinary or redirect)
+// Public preview (proxy from Cloudinary)
 router.get('/:id/preview', async (req, res) => {
   try {
     const note = await Note.findById(req.params.id).select('fileUrl mimeType originalName').lean();
@@ -263,16 +263,11 @@ router.get('/:id/preview', async (req, res) => {
       if (publicId) {
         const signedUrl = getSignedUrl(publicId, resourceType);
         if (signedUrl) accessUrl = signedUrl;
+        console.log('[preview] publicId:', publicId, 'resourceType:', resourceType, 'signedUrl:', signedUrl);
       }
     }
 
-    // For PDFs and images, redirect directly (simpler and more reliable)
-    const mime = note.mimeType || '';
-    if (mime === 'application/pdf' || mime.startsWith('image/')) {
-      return res.redirect(accessUrl);
-    }
-
-    // For other files, try to proxy
+    // Always proxy the file through backend (handles auth)
     const upstream = await fetch(accessUrl);
     if (!upstream.ok) {
       console.error('Preview fetch failed:', upstream.status, upstream.statusText, 'URL:', accessUrl);

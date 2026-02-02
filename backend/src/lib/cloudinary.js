@@ -44,24 +44,43 @@ async function uploadToCloudinary(
 }
 
 // Generate a signed URL for accessing private/raw files
-function getSignedUrl(publicId, resourceType = 'raw') {
+function getSignedUrl(publicId, resourceType = 'raw', format = null) {
   if (!isCloudinaryConfigured()) return null;
   initCloudinary();
 
-  return cloudinary.url(publicId, {
+  const options = {
     resource_type: resourceType,
     type: 'upload',
     sign_url: true,
     secure: true,
-  });
+  };
+
+  // For raw files, we need to include the format/extension
+  if (format) {
+    options.format = format;
+  }
+
+  return cloudinary.url(publicId, options);
 }
 
-// Extract public ID from a Cloudinary URL
+// Extract public ID from a Cloudinary URL (without extension for raw files)
 function extractPublicId(url) {
   if (!url) return null;
-  // URL format: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{folder}/{filename}
-  // or: https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{filename}
+  // URL format: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{folder}/{filename.ext}
   const match = url.match(/\/(?:raw|image|video)\/upload\/(?:v\d+\/)?(.+)$/);
+  if (!match) return null;
+  
+  let publicId = match[1];
+  
+  // For raw files, the public ID includes the extension, but for signed URLs we may need it without
+  // Actually for raw files, keep the full path including extension
+  return publicId;
+}
+
+// Extract file extension from URL
+function extractFormat(url) {
+  if (!url) return null;
+  const match = url.match(/\.([a-zA-Z0-9]+)(?:\?|$)/);
   return match ? match[1] : null;
 }
 
@@ -78,5 +97,7 @@ module.exports = {
   uploadToCloudinary, 
   getSignedUrl, 
   extractPublicId,
-  extractResourceType 
+  extractResourceType,
+  extractFormat
+};
 };

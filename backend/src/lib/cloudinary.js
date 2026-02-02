@@ -43,4 +43,40 @@ async function uploadToCloudinary(
   };
 }
 
-module.exports = { isCloudinaryConfigured, uploadToCloudinary };
+// Generate a signed URL for accessing private/raw files
+function getSignedUrl(publicId, resourceType = 'raw') {
+  if (!isCloudinaryConfigured()) return null;
+  initCloudinary();
+
+  return cloudinary.url(publicId, {
+    resource_type: resourceType,
+    type: 'upload',
+    sign_url: true,
+    secure: true,
+  });
+}
+
+// Extract public ID from a Cloudinary URL
+function extractPublicId(url) {
+  if (!url) return null;
+  // URL format: https://res.cloudinary.com/{cloud}/raw/upload/v{version}/{folder}/{filename}
+  // or: https://res.cloudinary.com/{cloud}/image/upload/v{version}/{folder}/{filename}
+  const match = url.match(/\/(?:raw|image|video)\/upload\/(?:v\d+\/)?(.+)$/);
+  return match ? match[1] : null;
+}
+
+// Get resource type from URL
+function extractResourceType(url) {
+  if (!url) return 'raw';
+  if (url.includes('/image/upload/')) return 'image';
+  if (url.includes('/video/upload/')) return 'video';
+  return 'raw';
+}
+
+module.exports = { 
+  isCloudinaryConfigured, 
+  uploadToCloudinary, 
+  getSignedUrl, 
+  extractPublicId,
+  extractResourceType 
+};

@@ -6,7 +6,7 @@ const { Readable } = require('stream');
 const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
-const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
+const { uploadToCloudinary, isCloudinaryConfigured, getSignedUrl, extractPublicId, extractResourceType } = require('../lib/cloudinary');
 const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
@@ -255,18 +255,28 @@ router.get('/:id/preview', async (req, res) => {
       return res.status(404).json({ message: 'Preview not available - no file URL stored' });
     }
 
-    // For PDFs and images, redirect directly to Cloudinary (simpler and more reliable)
+    // Generate signed URL for Cloudinary files (needed for raw/PDF files)
+    let accessUrl = note.fileUrl;
+    if (note.fileUrl.includes('cloudinary.com')) {
+      const publicId = extractPublicId(note.fileUrl);
+      const resourceType = extractResourceType(note.fileUrl);
+      if (publicId) {
+        const signedUrl = getSignedUrl(publicId, resourceType);
+        if (signedUrl) accessUrl = signedUrl;
+      }
+    }
+
+    // For PDFs and images, redirect directly (simpler and more reliable)
     const mime = note.mimeType || '';
     if (mime === 'application/pdf' || mime.startsWith('image/')) {
-      return res.redirect(note.fileUrl);
+      return res.redirect(accessUrl);
     }
 
     // For other files, try to proxy
-    const upstream = await fetch(note.fileUrl);
+    const upstream = await fetch(accessUrl);
     if (!upstream.ok) {
-      console.error('Preview fetch failed:', upstream.status, upstream.statusText, 'URL:', note.fileUrl);
-      // Fallback: redirect to the URL directly
-      return res.redirect(note.fileUrl);
+      console.error('Preview fetch failed:', upstream.status, upstream.statusText, 'URL:', accessUrl);
+      return res.status(502).json({ message: 'Failed to fetch file' });
     }
 
     const contentType = upstream.headers.get('content-type') || note.mimeType || 'application/octet-stream';
@@ -275,17 +285,12 @@ router.get('/:id/preview', async (req, res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');
 
     if (!upstream.body) {
-      return res.redirect(note.fileUrl);
+      return res.status(502).json({ message: 'File stream unavailable' });
     }
 
     Readable.fromWeb(upstream.body).pipe(res);
   } catch (e) {
     console.error('Preview error:', e.message, e.stack);
-    // Try to redirect as fallback
-    try {
-      const note = await Note.findById(req.params.id).select('fileUrl').lean();
-      if (note?.fileUrl) return res.redirect(note.fileUrl);
-    } catch (e2) { /* ignore */ }
     return res.status(502).json({ message: 'Failed to fetch file' });
   }
 });
@@ -297,7 +302,18 @@ router.get('/:id/download', authRequired, async (req, res) => {
 
   if (note.fileUrl) {
     try {
-      const upstream = await fetch(note.fileUrl);
+      // Generate signed URL for Cloudinary files
+      let accessUrl = note.fileUrl;
+      if (note.fileUrl.includes('cloudinary.com')) {
+        const publicId = extractPublicId(note.fileUrl);
+        const resourceType = extractResourceType(note.fileUrl);
+        if (publicId) {
+          const signedUrl = getSignedUrl(publicId, resourceType);
+          if (signedUrl) accessUrl = signedUrl;
+        }
+      }
+
+      const upstream = await fetch(accessUrl);
       if (!upstream.ok) {
         return res.status(502).json({ message: 'Failed to fetch file from storage' });
       }

@@ -6,7 +6,7 @@ const { Readable } = require('stream');
 const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
-const { uploadToCloudinary, isCloudinaryConfigured, getSignedUrl, extractPublicId, extractResourceType } = require('../lib/cloudinary');
+const { uploadToCloudinary, isCloudinaryConfigured } = require('../lib/cloudinary');
 const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
@@ -245,7 +245,7 @@ router.post('/', authRequired, upload.single('file'), async (req, res) => {
   return res.status(201).json({ note });
 });
 
-// Public preview (proxy from Cloudinary)
+// Public preview - redirect to Cloudinary URL directly (files are public)
 router.get('/:id/preview', async (req, res) => {
   try {
     const note = await Note.findById(req.params.id).select('fileUrl mimeType originalName').lean();
@@ -255,37 +255,10 @@ router.get('/:id/preview', async (req, res) => {
       return res.status(404).json({ message: 'Preview not available - no file URL stored' });
     }
 
-    // Generate signed URL for Cloudinary files (needed for raw/PDF files)
-    let accessUrl = note.fileUrl;
-    if (note.fileUrl.includes('cloudinary.com')) {
-      const publicId = extractPublicId(note.fileUrl);
-      const resourceType = extractResourceType(note.fileUrl);
-      if (publicId) {
-        const signedUrl = getSignedUrl(publicId, resourceType);
-        if (signedUrl) accessUrl = signedUrl;
-        console.log('[preview] publicId:', publicId, 'resourceType:', resourceType, 'signedUrl:', signedUrl);
-      }
-    }
-
-    // Always proxy the file through backend (handles auth)
-    const upstream = await fetch(accessUrl);
-    if (!upstream.ok) {
-      console.error('Preview fetch failed:', upstream.status, upstream.statusText, 'URL:', accessUrl);
-      return res.status(502).json({ message: 'Failed to fetch file' });
-    }
-
-    const contentType = upstream.headers.get('content-type') || note.mimeType || 'application/octet-stream';
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(note.originalName)}"`);
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-
-    if (!upstream.body) {
-      return res.status(502).json({ message: 'File stream unavailable' });
-    }
-
-    Readable.fromWeb(upstream.body).pipe(res);
+    // Files are uploaded as public, just redirect to the secure_url
+    return res.redirect(note.fileUrl);
   } catch (e) {
-    console.error('Preview error:', e.message, e.stack);
+    console.error('Preview error:', e.message);
     return res.status(502).json({ message: 'Failed to fetch file' });
   }
 });
@@ -297,18 +270,8 @@ router.get('/:id/download', authRequired, async (req, res) => {
 
   if (note.fileUrl) {
     try {
-      // Generate signed URL for Cloudinary files
-      let accessUrl = note.fileUrl;
-      if (note.fileUrl.includes('cloudinary.com')) {
-        const publicId = extractPublicId(note.fileUrl);
-        const resourceType = extractResourceType(note.fileUrl);
-        if (publicId) {
-          const signedUrl = getSignedUrl(publicId, resourceType);
-          if (signedUrl) accessUrl = signedUrl;
-        }
-      }
-
-      const upstream = await fetch(accessUrl);
+      // Files are public, use the stored URL directly
+      const upstream = await fetch(note.fileUrl);
       if (!upstream.ok) {
         return res.status(502).json({ message: 'Failed to fetch file from storage' });
       }

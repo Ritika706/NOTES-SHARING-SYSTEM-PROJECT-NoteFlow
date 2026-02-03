@@ -42,17 +42,9 @@ export default function UploadPage() {
     if (!f) return;
 
     const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
-    const MAX_PDF_BYTES = 50 * 1024 * 1024; // PDFs can be larger (server compresses)
-    const isPdf = String(f.type || '').toLowerCase() === 'application/pdf';
 
-    // PDFs can be up to 50MB (server will compress with Ghostscript)
-    if (isPdf && f.size > MAX_PDF_BYTES) {
-      toastError('PDF is too large. Max 50MB allowed.');
-      return;
-    }
-
-    // Non-PDFs must be under 10MB
-    if (!isPdf && f.size >= MAX_FILE_BYTES) {
+    // All files must be under 10MB
+    if (f.size >= MAX_FILE_BYTES) {
       toastError('File size too large. Please upload a file smaller than 10MB.');
       return;
     }
@@ -86,7 +78,7 @@ export default function UploadPage() {
     } catch (err) {
       const status = err?.response?.status;
       if (status === 413) {
-        alert('File size is too large (even after compression). Please try a smaller PDF.');
+        toastError('File size is too large. Please upload a file smaller than 10MB.');
         return;
       }
       toastError(await getAxiosErrorMessage(err, 'Failed to upload note'));

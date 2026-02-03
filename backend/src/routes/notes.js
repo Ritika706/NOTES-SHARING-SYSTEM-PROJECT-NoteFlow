@@ -7,7 +7,6 @@ const { Note } = require('../models/Note');
 const { User } = require('../models/User');
 const { authRequired, authOptional } = require('../middleware/auth');
 const { uploadToCloudinary, uploadBufferToCloudinary, isCloudinaryConfigured, deleteFromCloudinary } = require('../lib/cloudinary');
-const { compressPdfWithGhostscript } = require('../lib/ghostscript');
 const { envBool, envString } = require('../lib/env');
 
 const router = express.Router();
@@ -44,8 +43,7 @@ const allowedMimeTypes = new Set([
 ]);
 
 const baseMulterOptions = {
-  // Allow PDFs up to 50MB; they will be compressed with Ghostscript before Cloudinary upload.
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (!file?.mimetype || !allowedMimeTypes.has(file.mimetype)) {
       return cb(new Error('Only PDF, images, and Word docs allowed'));
@@ -225,12 +223,11 @@ router.post(
   let cloudinaryResourceType = '';
   if (isCloudinaryConfigured()) {
     const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
-    const isPdf = String(req.file.mimetype || '').toLowerCase() === 'application/pdf';
     const isImage = String(req.file.mimetype || '').startsWith('image/');
     const resourceType = isImage ? 'image' : 'raw';
 
-    // Non-PDFs must be under 10MB
-    if (!isPdf && req.file.size >= MAX_FILE_BYTES) {
+    // All files must be under 10MB
+    if (req.file.size >= MAX_FILE_BYTES) {
       return res.status(413).json({ message: 'File size too large. Please upload a file smaller than 10MB.' });
     }
 
@@ -241,23 +238,6 @@ router.post(
     }
     if (!uploadBuffer) {
       return res.status(400).json({ message: 'file is required' });
-    }
-
-    // Compress PDF with Ghostscript if >= 10MB
-    if (isPdf && uploadBuffer.length >= MAX_FILE_BYTES) {
-      try {
-        console.log(`[upload] Compressing PDF with Ghostscript (${(uploadBuffer.length / 1024 / 1024).toFixed(2)} MB)...`);
-        uploadBuffer = await compressPdfWithGhostscript(uploadBuffer, { quality: 'ebook' });
-        console.log(`[upload] Compressed to ${(uploadBuffer.length / 1024 / 1024).toFixed(2)} MB`);
-      } catch (e) {
-        console.error('[upload] Ghostscript error:', e?.message || e);
-        return res.status(502).json({ message: 'Failed to compress PDF. Ghostscript may not be available.' });
-      }
-
-      // Still too large after compression
-      if (uploadBuffer.length >= MAX_FILE_BYTES) {
-        return res.status(413).json({ message: 'File size too large after compression. Please upload a smaller file.' });
-      }
     }
 
     try {
